@@ -1,0 +1,46 @@
+DDE is a universal interface for drivers that makes it easy for systems without many native drivers (such as the hurd) to use drivers from systems with many native drivers (like Linux 2.6).  These drivers can run in userspace, which has some interesting implications.
+
+=== Overview ===
+
+Porting DDE to the Hurd was originally the work of [http://www.gnu.org/software/hurd/user/zhengda.html Zheng Da].  His work is currently in the [http://git.savannah.gnu.org/cgit/hurd/incubator.git/log/?h=dde incubator] git repository of the hurd.  See [http://www.gnu.org/software/hurd/dde.html GNU's DDE page] for a more in-depth dicussion.
+
+=== From a User Perspective ===
+
+For the user, this means that, once we have completed the implementation of DDE, Hurd will support a wider variety of hardware, using Linux 2.6's drivers.  You need to do only three things to get DDE running:
+<ul><li>Download a modified Gnumach<br /><li>Download the DDE drivers<li>Start the translators!</ul>
+
+==== Gnumach ====
+
+The normal gnumach that is distributed with Arch Hurd cannot use DDE's user level drivers.  A build of gnumach from the master-userleveldrivers git branch is in [extra], however, so run <pre>pacman -S gnumach-userleveldrivers</pre><span style="color:#ee2222"><b>!Warning!</b></span>  This kernel overwrites the normal gnumach, and has forfeited some kernel-side drivers for DDE ones, such as the pcnet32 driver required to access the internet from Qemu.  Thus, either back up your gnumach package (see /var/cache/pacman/pkg/) or make sure you install your ethernet drivers at the same time, otherwise, if something goes very wrong, your system may not be able to connect to the internet.
+
+==== Drivers ====
+
+Drivers that use DDE are available in [testing], and may come to [extra] soon.  To get them, run <pre>pacman -S dde</pre>.  The ne2k driver has been tested to have internet connection!
+
+==== Using ====
+
+These commands have been tested to use the driver dde_ne2k with gnumach-userleveldrivers under QEMU
+
+===== Gnumach =====
+
+While you are still using gnumach from [core], install the packages you will need
+
+<pre>pacman -S gnumach-userleveldrivers dde</pre>
+
+===== QEMU =====
+
+Out of the box, QEMU uses an emulated pcnet32 driver.  The dde_pcnet32 driver has not been tested to fully work, so it is advisable to use the ne2k driver instead.  Add this to the end of your QEMU launch command (and remove other -net commands)
+
+<pre> -net nic,vlan=1,model=ne2k_pci -net user,vlan=1</pre>
+
+===== Arch Hurd =====
+
+Boot your qemu image, then login as root.  It is probably not necessary to run as root, since these are *user* level drivers, but this has not been tested fully.  Run the following commands
+
+<pre>settrans -fgap ne2k /hurd/dde/dde_ne2k_pci
+settrans -fgap /dev/eth0 /hurd/dde/devnode eth0 -M ne2k
+settrans -fgap /servers/socket/2 /hurd/dde/pfinet -i /dev/eth0 -a 10.0.2.15 -g 10.0.2.2 -m 255.255.255.0</pre>
+
+As you run these commands, you should see status messages informing you that a device is being detected.  If all goes well, you should be able to run 'ifconfig' and be informed that eth0 is UP BROADCAST RUNNING MULTICAST
+
+Congratulations!  You are now running a network driver compiled from linux source in your Hurd's userspace!
