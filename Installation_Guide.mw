@@ -1,0 +1,315 @@
+__NOTOC__
+This guide is for installing an configuring Arch Hurd using the LiveCD.
+
+__TOC__
+
+
+= Part I: Installing the base system =
+
+== A note on hardware support ==
+Currently GNU Mach does not support SATA, USB, sound, or wireless networking. If you require one of these to use your computer, you will be unable to install Arch Hurd. However, there is currently work on porting DDE linux26 to GNU Mach, which would bring support for hardware drivers from Linux 2.6.29. 
+
+== Obtaining the LiveCD ==
+The latest version of the Arch Hurd livecd can be found [http://files.archhurd.org/livecd/i686-core-latest.iso here].
+
+* The LiveCD can be used to install an Arch Hurd base system, this contains only what is necessary to run Arch Hurd and so, for example, lacks a graphical user interface.
+* There is currently no option to install from the official repositories, the package cache on the CD is used instead. This can result in your system being out-of-date immediately after installing.
+* There are currently some bugs in the installer; neither locale-gen or grub-install are run and must be performed manually by the user (after booting for the first time, and by using a GRUB disk, such as the Arch Hurd ISO).
+
+After downloading the LiveCD burn the ISO file to a blank CD.
+
+== Booting the live environment ==
+Insert the CD and boot it. You may need to edit your BIOS settings by pressing a key during the boot process. At this point, the GRUB menu should be displayed. You will need to edit the GRUB configuration by pressing e, and change the root device to that of your CD drive.
+
+* If your CD drive is the master on the primary IDE bus, it will be called '''hd0'''
+* If your CD drive is the slave on the primary IDE bus, it will be called '''hd1'''
+* If your CD drive is the master on the secondary IDE bus, it will be called '''hd2'''
+* If your CD drive is the slave on the secondary IDE bus, it will be called '''hd3'''
+
+Most computers do not have more than two IDE buses, though if you do you should be able to easily figure out the appropriate device name.
+
+After booting, you will be presented with some instructions at the login prompt. To log in, enter '''login root'''. The root account has no password. Additionally, this installation guide can be found at '''/arch/guide''', so, to read this guide, change to virtual console 2 by pressing Alt+F2 and invoke less by typing at the prompt:
+
+ less /arch/guide
+
+You can switch back to virtual console 1 with Alt+F1, and refer to the guide at any point in the installation.
+
+=== Translators ===
+After booting, you will need to set up translators for any hard drives and partitions you wish to make use of during the installation process. You do this by changing to the /dev directory and using the MAKEDEV script. Hard drives in the Hurd are named, as previously explained, in a '''hdX''' format, where '''X''' is a zero-based index number for the position on the system IDE buses. For partitions, the naming scheme is '''hdXsY''', where '''Y''' is a one-based index for the partition on the hard drive.
+
+For example, to create a translator for the master hard drive on the primary IDE bus, which has two partitions, and the slave on the primary IDE bus, you would do this:
+
+ cd /dev
+ MAKEDEV hd0 hd0s1 hd0s2 hd1
+
+These translators will be copied over to your finished system after the installation is complete so you do not have to do this again.
+
+== Installation Process ==
+In the console, enter '''/arch/setup''' to launch the interactive installer which will be used to install your Arch Hurd base system. 
+
+=== Prepare Hard Drives ===
+'''Partitioning can destroy data, ensure you have a suitable backup!'''
+
+Additionally, partitioning can be done using another partitioning tool if you so desire, if that is the case skip the partitioning stage and go straight to formatting the partitions and setting mount points.
+
+==== Partition hard drives ====
+At this stage you will be presented with a list of hard drives and be given the option of partitioning each of them with cfdisk. Below is what I would recommend for a partitioning scheme:
+* '''/''' (root) The root filesystem contains all installed programs, their data, and is the top of the filesystem hierarchy. All other filesystems are mounted relative to root, thus, the root filesystem must contain suitable files to be able to boot the system.
+* '''/home''' User-specific configuration and data is stored in the home directory, and having a separate partition is useful if sharing between distributions. However, note that the Hurd only fully supports ext2 for now.
+* '''swap''' A partition which the GNU Mach kernel pages data to if the RAM is full. Having swap is greatly recommended on the Hurd, as it massively increases stability. 
+
+It is obviously dependent on your needs how big you make the partitions, but for most purposes a 20GB root partition should be enough.
+
+After partitioning, you will be prompted to reboot, as GNU Mach currently can not detect partition table changes whilst running. After rebooting, resume the installation at the next step, formatting partitions.
+
+==== Format partitions ====
+The Hurd currently supports a few filesystems (ext2, UFS, iso9660, and Linux swap), thus the only choices offered in this section are for ext2 and swap. If you are going to be sharing a /home partition with another distribution, this is obviously not ideal as the Linux kernel supports a vast number of filesystems.
+
+Formatting a partition '''will''' cause data loss, so double-check before you do so.
+
+==== Choose mount points ====
+At minimum, you should have a root partition, for which the mount point is '''/'''. It is recommended you also have a swap partition, for which the mount point will be '''swap''' and, if you used the recommended partitioning scheme in the partitioning section, you will also have a third partition mounted at '''/home'''. 
+
+=== Select Packages ===
+After preparing the hard drives, you will need to select the packages you wish to install. All of the packages you can choose between are in the '''base''' and '''base-devel''' groups. Thus, you will almost certainly need them all at some point. It is recommended to simply install all of them unless you have some particular need.
+
+Additionally, it is possible that some packages, even if de-selected, will be pulled in as dependencies for other packages which you have selected.
+
+After selecting the packages, continue with the next step of the installation, installing the system.
+
+=== Install System ===
+'''Note: you need to mount your new root partition manually in the 2010-06-05 LiveCD before running this step. The command is: settrans -a /mnt /hurd/ext2fs /dev/hdXsY, where X and Y are the appropriate numbers.'''
+
+After confirming that you wish to commit to the installation, the installation will begin. In this stage a number of things happen
+
+* All your partitions are mounted and the /etc/fstab file is generated
+* The package files are copied from the LiveCD to the package cache in your new installation, in '''/var/cache/pacman/pkg'''
+* The packages themselves are installed
+* Some basic translators are set up in '''/dev''', including ones for all of your partitions and hard drives which you set up at the beginning of the installation, after booting the LiveCD.
+
+=== Configure System ===
+If you are familiar with Arch Linux configuration, you will find this section very familiar.
+
+==== /etc/rc.conf ====
+Like Arch Linux, Arch Hurd uses a main configuration file called /etc/rc.conf containing a range of configuration information used by the initscripts when starting the system. The default values for all variables are safe to use.
+
+==== LOCALIZATION Section ====
+* '''LOCALE'''=: This sets the system locale, which is used by i18n-aware applications, available locales can be listed by running '''locale -a'''.
+* '''USECOLOR'''=: If you have a colour console, and want to use colours during the system start up, set this to yes. 
+
+ LOCALE="POSIX"
+ USECOLOR="yes"
+
+==== CONSOLE Section ====
+* '''CONSOLEDISPLAY'''=: Display driver used for the console client, available drivers are vga and ncursesw (which doesn't currently work on Arch Hurd).
+* '''CONSOLEFONT'''=: Full path to the font to be used in the VGA console.
+* '''CONSOLEMOUSE'''=: The following three variables are a little superfluous, as there is only one driver for each. "pc_mouse" if you want to use the mouse driver.
+* '''CONSOLEKBD'''=: "pc_kbd" if you want to use the US keyboard (other layouts not yet supported) driver.
+* '''CONSOLESPEAKER'''=: "generic_speaker" if you want to use the speaker driver.
+* '''CONSOLEOPTS'''=: Additional options to pass to the console client, see console --help for more information. 
+
+ CONSOLEDISPLAY="vga"
+ CONSOLEFONT=
+ CONSOLEMOUSE=
+ CONSOLEKBD="pc_kbd"
+ CONSOLESPEAKER="generic_speaker"
+ CONSOLEOPTS="-c"
+
+==== NETWORKING Section ====
+* '''HOSTNAME'''=: The hostname of your computer.
+ HOSTNAME="myhost"
+
+==== DAEMONS Section ====
+his is simply an array listing daemons to start up at boot.
+
+ DAEMONS=(syslog-ng !crond)
+
+A daemon can be started in the background by prefixing it with an '''@''', and can not be started at all by prefixing with a '''!'''.
+
+All Arch Hurd daemons, as on Arch Linux, reside in /etc/rc.d/. 
+
+==== /etc/pacman.conf ====
+The pacman configuration file contains repositories, amongst other things, which you can access packages from. For most users, this configuration file is fine as it is, so you do not need to do anything. However, if you wish to use the Arch Hurd testing repository find and uncomment this section of the configuration:
+
+ #[testing]
+ ## Add your preferred servers here, they will be used first
+ #Include = /etc/pacman.d/mirrorlist
+
+The '''testing''' repository must be above the '''core''' and '''extra''' repositories in the configuration, as package names can (and will) conflict. 
+
+==== /etc/pacman.d/mirrorlist ====
+The pacman mirrorlist contains a list of servers to download packages from. Bear in mind that files.archhurd.org is throttled when making your choice.
+
+Most of the mirrors update at least four times a day, so they should all be fairly up-to-date.
+
+==== /etc/fstab ====
+The filesystems table file contains a list of all filesystems which are present in the system and how they are to be mounted. This file is most commonly used by the '''mount''' command. For example, the '''mount -a''' command mounts all filesystems which do not have the '''noauto''' option set.
+
+==== Example /etc/fstab ====
+This is for a system with two partitions on one HDD, the first partition being an ext2 filesystem containing / and the second being a swap partition:
+
+ # <file system>        <dir>        <type>        <options>        <dump>    <pass>
+ /dev/hd0s1              /            ext2          defaults          1         1
+ /dev/hd0s2              none         swap          defaults          0         0
+
+* '''<file system>''' denotes the device node or file which is to be mounted. For most cases, this field will contain a device node in /dev.
+* '''<dir>''' denotes where the device will be mounted. Note that, for the swap partition, this is not an actual location but a keyword.
+* '''<type>''' denotes the type of the filesystem. The Hurd supports a variety of filesystems.
+* '''<options>''' denotes any special options to be used when mounting the partition, see man mount for a detailed explanation of these.
+* '''<dump>''' is used by the '''dump''' command, a backup utility.
+* '''<pass>''' is used by '''fsck''' to determine the order in which filesystem checks are to be done at boot. The root partition should have a <pass> of 1, and all other partitions 0 or 2, with 0 meaning that the partition does not need to be checked. 
+
+However, you should know that an /etc/fstab file is nearly completely useless on Hurd. In fact, I only have my swap partition in mine, so I can use '''swapon -a'''. The reason for this is translators. You can, and I do, 'mount' all of your partitions with '''settrans''', in such a way that these 'mounts' will persist between reboots. Translators are very powerful tools.
+
+==== /etc/locale.gen ====
+This configuration file contains available locales on your Arch Hurd system. For example, to add the UK and US English locales, you would append the following to the configuration:
+
+ en_GB ISO-8859-1
+ en_GB.UTF-8 UTF-8
+
+ en_US ISO-8859-1
+ en_US.UTF-8 UTF-8
+
+The LiveCD currently does not generate the locales for you after editing this configuration file, you must do so after booting your installation, by running the command locale-gen.
+
+==== /etc/hosts ====
+This configuration file acts as a simple local DNS server (sort of), it associates IP addresses with names, and should, at a minimum, contain a line like this:
+
+ 127.0.0.1   localhost.localdomain   localhost '''hostname'''
+
+Where '''hostname''' is the hostname you specified in '''/etc/rc.conf'''. This is required for program compatability. A popular use of the hosts file is for local networked computers, for example:
+
+ 10.1.1.1   router
+ 10.1.1.2   fileserver
+
+==== /etc/resolv.conf ====
+The resolver is a set of functions in glibc which provide access to the domain name system (DNS). The main function of the DNS is to translate hostnames into IP addresses (like the hosts file), and the resolver configuration file contains information that is read by the resolver when it is invoked. Commonly, this information is nameservers. For example, to use the OpenDNS nameservers, add the following to the file:
+
+ nameserver 208.67.222.222
+ nameserver 208.67.220.220
+
+==== Root Password ====
+Set a root password, as you will use this to log in after booting your system. 
+
+=== Exit Install ===
+At this point, your system is as installed and configured as the LiveCD can make it, unfortunately this does not include installing GRUB due to problems with the Arch Hurd GRUB package. At this point you should exit the installation program and reboot into your new installation (after installing GRUB with appropriate media).
+
+==== Installing with a GRUB boot disk ====
+Installing GRUB is easy after using the LiveCD as the configuration and binary files are all in the appropriate locations. To install GRUB from the Arch Hurd installation disk, open the command line by pressing c and enter the following commands:
+
+ find /boot/gnumach
+ root (hd0,0)
+ setup (hd0)
+
+Obviously, change '''(hd0,0)''' and '''(hd0)''' if the value of the find command doesn't point to those devices.
+
+= Part II: Configuration and Updating =
+Well done, you now have (presumably) a booting Arch Hurd base system! From here you can configure and install things to your hearts content and turn your Arch Hurd system into whatever you like. Log in using the root account and password you specified during the system configuration stage. If you did not specify a password, just press enter after typing in '''login root'''.
+
+== Configuring the network ==
+The Hurd currently has no support for wireless networking, but most ethernet controllers should work. Networking on the Hurd is managed by a '''translator''', these are magical Hurd-thingies that implement most of the really useful functionality (like mounting partitions), the good thing about translators is that you don't have to re-create them every time you boot (usually), so you only need to configure your network once, and it will work forever!
+
+Translators attach themselves to nodes in the filesystem, and then work by intercepting requests to that node and acting accordingly. So first we need to give our network translator somewhere to live:
+
+ touch /servers/socket/2
+
+Now, you need to start the appropriate translator, we'll be using the pfinet translator: 
+
+ settrans -fgap /servers/socket/2 /hurd/pfinet -i '''INTERFACE''' -a '''ADDRESS''' -g '''GATEWAY''' -m '''NETMASK'''
+
+* INTERFACE is the network interface you'll be using, this probably should be eth0.
+* ADDRESS is the IP address, currently the Hurd doesn't support DHCP so you need to enter these values yourself.
+* GATEWAY is the address of your default gateway (router).
+* NETMASK is the network mask for your subnet, probably 255.255.255.0 
+
+Now, let us examine this magical command:
+* '''settrans''' is the command to create a translator.
+* '''-fgap''' deletes any active or passive translators on the node ('''-f''' and '''-g''' options), and creates a new active and passive translator ('''-a''' and '''-p''' options). Active translators begin working immediately, whereas passive ones start up when they receive a request.
+* '''/servers/socket/2''' is where the translator will attach itself.
+* '''/hurd/pfinet''' is the name of the translator.
+* And everything after that is options to the specific translator. 
+
+As a passive translator was created (as well as an active one), networking will work every time you boot. This is a big factor in why we didn't port most of the networking stuff from Arch Linux's rc.conf to Arch Hurd.
+
+== Package Management in Arch Hurd ==
+Arch Hurd, like Arch Linux, uses the '''pacman''' package manager, which in turn uses '''libalpm'''. Thus, if you have used Arch Linux, you can use Arch Hurd (as far as package management goes). Some basic commands are as follows:
+
+pacman -S '''pkgname''' : install ''pkgname''.
+pacman -Ss '''query''' : search the repositories for ''query''.
+pacman -R '''pkgname''' : uninstall ''pkgname''.
+pacman -Rs '''pkgname''' : uninstall ''pkgname'', removing all of its dependencies. 
+
+More useful parameters can be found in the manpage. However, we're going to focus on one particular set of options here, the command to update your system: 
+
+ pacman -Syu
+
+* '''-S''' specifies that this is a sync operation.
+* '''-y''' synchronises the locale package database with the repositories.
+* '''-u''' installs any package upgrades. 
+
+If you leave out the -u option, you can synchronise the database with '''pacman -Sy''', and then list available updates with '''pacman -Qu'''. You should update your system before installing any packages, as your packages are likely to be out of date, and mixing old and new packages is not recommended.
+
+=== Repositories ===
+Arch Hurd has three main repositories, a list of mirrors can be obtained here, these are:
+
+==== core ====
+Core contains what is required to get an Arch Hurd base system up and running. It is the source of the packages for the LiveCD installation, and all packages in core can only depend on other packages in core. Core is intended to be a stable repository from which you can construct a very basic Hurd system and from there expand it to your needs.
+
+==== extra ====
+Extra contains other packages, that aren't '''needed''', but are useful. Xorg, for example, lives in extra. Packages in extra may depend on packages in either core or extra.
+
+==== testing ====
+Testing contains updates for the core repository, and any other packages which the developers feel need testing before being pushed to the main repositories. All updates to core '''must''' go through testing first, so we can (hopefully) catch any show-stopping bugs before they hit the main repo.
+
+==== AUR (Arch User Repository) ====
+Finally, the AUR. This is not a binary repository, but rather a collection of user-submitted build scripts and patches to build packages which are not maintained in the official repositories. We make no guarantee of quality or functionality of packages in the AUR.
+
+== Adding a User ==
+It is best not to work as root whilst doing your everyday things, as a slight mistake can destroy your system. Thus, you should create a new user and begin using it. This can be done quite simply as in most other distributions, using either the '''adduser''' (easier to do manually) or '''useradd''' (easier to automate) commands:
+
+ adduser
+
+If, however, you prefer to automate this process (or simply find adduser slow) you can use useradd:
+
+ useradd -m -G [groups] -s [shell] [username]
+ passwd [username]
+
+* '''-m''': Creates the user home directory as /home/username
+* '''-G''': A list of supplementary groups which a user is a member of, each group must be separated by a command and no spaces.
+    -s: The path of the users login shell. 
+
+Useful groups include:
+
+* '''users''': The group to which all users belong
+* '''wheel''': Commonly a group given unfettered access to the sudo command. 
+
+Thus, for a typical system, one may issue this command:
+
+ useradd -m -G users,wheel -s /bin/bash archie
+
+== Installing and Configuring sudo ==
+'''sudo''' is a common privilege-escalation utility for UNIX systems which allows a user to run a command as another user, most commonly root. Sudo can be found in the core repository, and so can be installed quite simply with pacman:
+
+ pacman -S sudo
+
+To make a user a sudoer (ie: give them sudo access), '''you must run the visudo command as root'''. If you are unfamiliar with vim, you can specify a different editor by setting the '''EDITOR''' environmental variable. For example, to use nano:
+
+ EDITOR=nano visudo
+
+To give a user the ability to run any command with sudo, add a line such as this:
+
+ [username] ALL=(ALL) ALL
+
+To give a group the ability, add a line such as this:
+
+ %[groupname] ALL=(ALL) ALL
+
+You '''must''' edit /etc/sudoers with visudo, otherwise sudo can be rendered unusable, which would be quite annoying.
+
+= Part III: Let's play with the Hurd =
+Well done, now you have a bootable and configured Arch Hurd system ! I presume you wanna do something with it ? Contact us on irc, we have a lot of work for you :)
+
+== Troubleshooting ==
+Need help? Look at [[troubleshooting]] or [[tips]] pages, or contact us on irc (#archhurd & #archhurdfr on freenode)
+
+[[Category: Installation]]
