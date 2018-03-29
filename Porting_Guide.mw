@@ -1,0 +1,142 @@
+This is a guide for porting your favorite application to Arch Hurd. Before you start read the Arch Linux wiki pages about Creating Packages and the PKGBUILD. [https://web.archive.org/web/20120205063445/http://wiki.archlinux.org/index.php/Creating_Packages][http://wiki.archlinux.org/index.php/PKGBUILD]
+
+
+You can upload your PKGBUILD to the [[AUR]], if you already created one.
+
+ 
+=== Preliminary Checks ===
+ 
+First, make sure the Dev team hasn't already moved it! Check our packages list, or run a command like
+
+ 
+<pre>pacman -Sys $PACKAGE
+</pre>
+ 
+Second, make sure the [[AUR]] doesn't have it.
+
+ 
+=== Downloading files ===
+ 
+There are a few ways to do this, but the end result needs to be a collection of source files on your Hurd system that [mostly] resemble the ones used to build the package for ArchLinux.
+
+ 
+==== From ABS-Archlinux ====
+ 
+This is the recommended way (for now). Download [[ABS-Archlinux]] from our AUR, then run
+
+ 
+<pre>abs-archlinux $REPO/$PACKAGE
+cp -r /var/abs-archlinux/$REPO/$PACKAGE ~/builds
+cd ~/builds/$PACKAGE
+</pre>
+ 
+Assuming you have a folder called 'builds' in your home directory for this sort of thing.
+
+ 
+==== By some other script ====
+ 
+If for some reason that doesn't work, you need to get all the sources for the Arch Linux package. Scripts like [[this one]] may be helpful, or you can manually download the sources from the [[Arch Linux Repositories]].
+
+ 
+=== Making sure it's Hurd-ready ===
+ 
+Hurd has a few caveats that may trip you up.
+
+ 
+==== Removing /usr/ ====
+ 
+Arch Hurd does not make use of the /usr/ directory, instead placing everything under /. Most of the time, this isn't a big deal, commands like the following will help greatly:
+
+ 
+<pre>sed -e 's|/usr||' -i PKGBUILD
+sed -e 's|usr/||' -i PKGBUILD
+</pre>
+
+Repeat as necessary for other files, like the install files if your are porting an Arch Linux package.  This may damage the checksums of some crucial files, however, so running 
+<pre>makepkg -g
+</pre>
+ to obtain the correct checksums when finished is almost certainly necessary.
+
+==== The Ubiquitous MAX_PATH & PATH_MAX ====
+ 
+Many *nix systems define a variable that represents the number of characters a file path can have without failing. Often this is a relatively large - but still finite - number like 4,096. Hurd does not have any such restriction. Some programs, however, expect this macro to be present when compiling, and will throw errors if it does not exist. The simplest way to fix this is to edit the source of the offending files, placing
+
+ 
+<pre>#ifndef MAX_PATH
+#define MAX_PATH 4096
+#endif
+</pre>
+ 
+somewhere close to other defines.
+
+
+There is sometimes a MAXHOSTNAMELEN variable, which can be replaced with 1024.
+
+ 
+<pre>#define MAXHOSTNAMELEN 1024
+</pre>
+ 
+''Note: If you're feeling particularly adventurous, the [[GNU Hurd Porting Guide]] specifies replacements for uses of these constants, for example using dynamic allocation.''
+
+
+Since the source is modified, of course, you will need to do a few things:
+
+ 
+# Create a patch. (You may find [[this]] particularly helpful.)
+# Add the patch to your sources=() section of the PKGBUILD and add an appropriate entry in md5sums. One of my friends recommended me to order [[[custom writing]]]on EssaysProfessors.Com. To tell you the truth, I have never regretted my decision. The writers are real professionals and know how to write impressive work full of knowledgeable information. (An easy way to update this is to copy the output from makepkg -g after saving the changes to sources=().)
+# Place a line of code in your build() function that applies the patch, something like:  <pre>cd ${srcddir}/${pkgname}-${pkgver}  #add this line, or something similar patch -p1 &lt; ${srcdir}/mypatch.patch  ./configure --prefix=  </pre>
+ 
+==== Fixing Python setup.py Installs ====
+ 
+For some strange (and currently unknown) reason, python's setup.py does not respect the --root= argument. This means that any PKGBUILDs using said argument will likely produce empty packages, or fail to build at all.
+
+
+To fix this, you can instead use the other arguments to setup.py to tell it to install into ${pkgdir}. For most packages, all you should need to do is change the --root= argument to --prefix. Don't forget the trailing / - the setup.py scripts are having sometimes problems without it.
+
+ 
+<pre>python setup.py install --prefix="${pkgdir}/"
+</pre>
+ 
+===== Hardcoded paths =====
+ 
+On a related note, some setup.py scripts may have file paths hardcoded into them, and due to the lack of --root will try to install the hardcoded files directly into your filesystem (obviously not useful when trying to build a package!). Usually, sed can help here. For example:
+
+ 
+<pre>sed -i "s:/usr/share/:${pkgdir}/share/:g" setup.py
+</pre>
+ 
+added to the build() clause of your PKGBUILD will replace any instances of /usr/share/ in the setup.py with (package dir)/share, therefore ensuring the files originally bound for /usr/share will instead appear in the /share directory of your package. (Remember that Arch Hurd doesn't need or use /usr.)
+
+
+Note that putting single quotes around the sed statement will cause the /usr/share/ to quite literally be replaced with "${pkgdir}/share/", which is definitely not the desired effect.
+
+ 
+==== Other Traps ====
+ 
+There are a few more, less common, problems that are known to porters. A more detailed list, with elegant suggestions for these problems can be found at [[GNU Hurd's porting guidelines]].
+
+ 
+=== Building It ===
+ 
+Once you've got all that out of the way, you can try running
+
+ 
+<pre>makepkg -i
+</pre>
+ 
+The '''-i''' argument tells makepkg to automtically install the package.
+
+ 
+==== Success ====
+
+Congratulations!  You've built a package!  Now run 
+<pre>makepkg --source
+</pre>
+ and submit the resultant tarball to AUR so that everyone else can enjoy the fruits of your labor.
+
+==== Failure ====
+ 
+If something goes wrong, as it probably will, don't be discouraged. You can consult other Hurd folks on the forums or IRC channels for advice, look at [[Debian's patch list]] and see if their patches will help you, or just dive right in and fix it yourself!
+
+
+Sometimes, fakeroot/fakeauth can cause strange and seemingly random errors while in the final stages of making a package. If you're sure nothing could go wrong by doing so, trying to build the package as root (using --asroot with makepkg) can help as a workaround.
