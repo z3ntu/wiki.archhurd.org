@@ -1,0 +1,60 @@
+== Support ==
+
+Xorg was successfully tested on :
+
+* qemu
+* VMware
+* VirtualBox
+* Actual Hardware Installations
+
+== Installing ==
+
+Xorg is available in extra, and so can be installed as simply as anything else:
+
+ pacman -Sy xorg xf86-input-keyboard xf86-input-mouse xf86-video-vesa
+
+You will also need to add "-c" to the CONSOLEOPTS variable in your /etc/rc.conf file. While you are editing rc.conf you also need to set a driver for CONSOLEMOUSE (usually pc_mouse). Once you have done this, reboot.
+
+You should now see a new directory, /dev/cons. This contain the console mouse and keyboard interfaces, but Xorg expects those device nodes to be in different places. If you use a xorg.conf file, you can simply edit it to point to those devices, if not:
+
+ ln -s /dev/cons/kbd /dev/kbd
+ ln -s /dev/cons/mouse /dev/mouse
+
+Additionally, if you wish to run X terminal emulators as a normal user, you need to create the ptyp device:
+
+ cd /dev
+ MAKEDEV ptyp
+
+Now your system is ready to run Xorg.
+
+== .xinitrc ==
+
+The most convenient way to run Xorg is to set up a .xinitrc file starting various programs and suchlike for you when you start the X server. A simple example below, saved as ~/.xinitrc, is sufficient to start openbox:
+
+ #!/bin/bash
+ 
+ exec openbox
+
+The .xinitrc file is executed by whatever interpreter you specify (even python, if you so desire), so it can contain whatever logic or commands you like, for example:
+
+ #!/bin/bash
+ 
+ if <nowiki>[[ "$WM" == "" ]]</nowiki>; then
+     echo "Starting openbox..."
+     exec openbox
+ else
+     echo "Starting $WM..."
+     exec $WM
+ fi
+
+== Starting X ==
+
+It is advisable to install a window manager, such as openbox, which is currently in the xorg repository.
+
+ pacman -S openbox
+
+Once you have your .xinitrc (or whatever you're using) and your window manager set up, simply start X:
+
+ startx -- -retro
+
+[[Category:Guides]]
