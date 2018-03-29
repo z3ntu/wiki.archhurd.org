@@ -1,0 +1,557 @@
+== Creating the Partition ==
+ 
+The mainly-used filesystem for the Hurd is ext2; the code is mature and seems to work reasonably well, for the most part. So we'll be using ext2 in our set up.
+
+ 
+=== Making a qemu image ===
+ 
+Qemu is currently the main way we use Arch Hurd, so if you don't have a spare partition or HDD lying around, you can use a qemu image to house your installation.
+
+
+Barrucadu has created a script which can automatically create 10GB Arch Hurd qemu images containing the base and base-devel groups which you may wish to consider. It can be found [[here]]
+
+ 
+<pre># Create the image
+qemu-img create -f raw hurd.img 1GB
+
+# Make and format partition
+losetup /dev/loop0 hurd.img
+fdisk /dev/loop0
+losetup -d /dev/loop0
+
+# partition should start at sector 63. Check with fdisk -u=sectors -l hurd.img
+losetup -o 32256 /dev/loop0 hurd.img
+mkfs.ext2 -b 4096 -I 128 -o hurd /dev/loop0 261048
+# See below if you do not plan on making a 1GB image
+
+# mount image
+mount -o loop /dev/loop0 /mnt
+
+</pre>
+ 
+==== Finding the Block Number ====
+ 
+If you don't plan on making a 1GB image, you will need to change the '261048' in the above command. Unfortunately, mkfs.ext2 does not do a good job of automatically calculating the correct number of blocks.
+
+
+One method of calculating the number is 'number of sectors' * 512 / 'block size'. The following command parses fdisk output to compute the number:
+
+ 
+<pre>echo `sudo fdisk -u=sectors -l /dev/loop0 \
+      | grep /dev/loop0p1 \
+      | sed 's/ \+/ /g' \
+      | cut -d' ' -f4` '*' 1024 / 4096 | bc
+
+</pre>
+ 
+If this does not work, examine the get_hypermetadata error you will find when attempting to boot, go back to this section, and replace the number with 'disk size reported' / 'block size'.
+
+
+Selman has recommended using qemu-nbd to eliminate this step. See [[Another_Installation_Guide]].
+
+ 
+=== Using a real partition ===
+ 
+So, you have a partition or HDD sitting around, and have decided to install Arch Hurd on it. Good! However, if you're planning to boot off of this device, note that the Hurd only supports PATA and SCSI disks currently, though you can use a SATA disk if you'll be running it in an emulator, or if your BIOS supports putting SATA drives into legacy mode, which some do.
+
+
+I shall assume your partition has been created, so we'll jump straight to the end.
+
+ 
+<pre># Note that this command is slightly different to the one for a qemu image
+mkfs.ext2 -b 4096 -I 128 -o hurd /dev/sdXY
+
+# Mount partition
+mount /dev/sdXY /mnt
+
+</pre>
+ 
+Obviously, substituting '''X''' and '''Y''' for the appropriate values.
+
+
+Installing Arch Hurd to the image can now be done with either pacman (the preferred method) or using the crosshurd scripts.
+
+ 
+== Installing ==
+ 
+=== Pacman ===
+ 
+To do this you will first need to acquire a copy of pacman, if not installing from within Arch Linux. The simplest way to do this is to download the latest version of pacman from the Arch Linux mirrors and extract it. You will then need a pacman.conf file suitable for Arch Hurd, such as this:
+
+ 
+<pre>[options]
+    RootDir     = /mnt/
+    DBPath      = /mnt/var/lib/pacman/
+    CacheDir    = /mnt/var/cache/pacman/pkg/
+    LogFile     = /mnt/var/log/pacman.log
+    SyncFirst   = pacman
+    XferCommand = /usr/bin/wget --passive-ftp -c -O %o %u
+    CleanMethod = KeepCurrent
+
+[core]
+    Server = [[http://files.archhurd.org/repo/core/]]
+
+[extra]
+    Server = [[http://files.archhurd.org/repo/extra/]] 
+</pre>
+ 
+''note: when your host is 64bit, use in the pacman.conf ARCHITECTURE = i686''
+
+
+Now that you have both pacman and a configuration file, you can continue to install with pacman. This process is similar to [[installing Arch Linux from another Linux distro]]. Now, assuming your pacman configuration is named ./pachurd.conf:
+
+ 
+<pre>mkdir /mnt/var/lib/pacman -p
+pacman --config pachurd.conf -Sy
+
+pacman --config pachurd.conf -S base
+
+</pre>
+ 
+In addition, if you are going to be building packages, you may as well install the base-devel group now.
+
+ 
+<pre>pacman --config pachurd.conf -S base-devel
+
+</pre>
+ 
+Finally, copy the grub images to the correct location (ie: /boot)
+
+ 
+<pre>cp -a /mnt/lib/grub/i386-pc/* /mnt/boot/grub/
+
+</pre>
+ 
+=== Crosshurd ===
+ 
+This method was used to install Arch Hurd before it was easy, or even possible, to do so using pacman. As such, it is now deprecated and should not be used unless you have a specific reason (such as needing to build for something other than i686). Firstly you will need to acquire the latest version of the crosshurd scripts, which is currently [[crosshurd-20100312.tar.bz2]].
+
+ 
+<pre>mkdir crosshurd
+tar xvf /path/to/crosshurd-20100312.tar.bz2
+
+# Now you need to set important variables in the prepare script:
+#     $ROOT needs to be set to where you extracted the tarball (ie: the current directory)
+#     $HOST needs to be set to your current system (i686-pc-linux-gnu for i686, x86_64-unknown-linux-gnu for x86_64).
+#         Note: currently building the cross-toolchain fails on x86_64.
+#     $TARGET needs to be set to what you're building for. You shouldn't need to change this.
+# You can also edit the version numbers of the programs used in the cross-compile, but the default versions are known to work.
+nano ./scripts/prepare
+sed -i -e "/source.*pkgver/i \\
+source ./scripts/prepare" -e 's/$SRCDIR/$SOURCE_DIR/g' \
+-e 's/$DIFFUTILS_VER/$DIFF_VER/g' \
+-e 's/$XZUTILS_VER/$XZ_UTILS_VER/g' scripts/get-sources
+source ./scripts/get-sources
+source ./scripts/makeall
+
+</pre>
+ 
+You'll then need to move the built system to /mnt. The rest of this installation guide will, however, refer exclusively to a system installed using pacman.
+
+ 
+== Configuring the system ==
+ 
+If you are familiar with Arch Linux configuration, you will find this section very familiar.
+
+ 
+=== /etc/rc.conf ===
+ 
+Like Arch Linux, Arch Hurd uses a main configuration file called /etc/rc.conf containing a range of configuration information used by the initscripts when starting the system. The default values for all variables are safe to use.
+
+ 
+==== LOCALIZATION Section ====
+ 
+* '''LOCALE=''': This sets the system locale, which is used by i18n-aware applications, available locales can be listed by running '''locale -a'''.
+* '''USECOLOR=''': If you have a colour console, and want to use colours during the system start up, set this to yes.
+ 
+<pre>LOCALE="POSIX"
+USECOLOR="yes"
+
+</pre>
+ 
+==== CONSOLE Section ====
+ 
+* '''CONSOLEDISPLAY=''': Display driver used for the console client, available drivers are vga and ncursesw (which doesn't currently work on Arch Hurd).
+* '''CONSOLEFONT=''': Full path to the font to be used in the VGA console.
+* '''CONSOLEMOUSE=''': The following three variables are a little superfluous, as there is only one driver for each. "pc_mouse" if you want to use the mouse driver.
+* '''CONSOLEKBD=''': "pc_kbd" if you want to use the US keyboard (other layouts not yet supported) driver.
+* '''CONSOLESPEAKER=''': "generic_speaker" if you want to use the speaker driver.
+* '''CONSOLEOPTS=''': Additional options to pass to the console client, see '''console --help''' for more information.
+ 
+<pre>CONSOLEDISPLAY="vga"
+CONSOLEFONT=
+CONSOLEMOUSE=
+CONSOLEKBD="pc_kbd"
+CONSOLESPEAKER="generic_speaker"
+CONSOLEOPTS=
+
+</pre>
+ 
+==== NETWORKING Section ====
+ 
+* '''HOSTNAME=''': The hostname of your computer.
+ 
+<pre>HOSTNAME="myhost"
+
+</pre>
+ 
+==== DAEMONS Section ====
+ 
+This is simply an array listing daemons to start up at boot.
+
+ 
+<pre>DAEMONS=(syslog-ng !crond)
+
+</pre>
+ 
+A daemon can be started in the background by prefixing it with an '''@''', and can not be started at all by prefixing with a '''!'''.
+
+
+All Arch Hurd daemons, as on Arch Linux, reside in /etc/rc.d.
+
+ 
+=== /etc/fstab ===
+ 
+The filesystems table file contains a list of all filesystems which are present in the system and how they are to be mounted. This file is most commonly used by the '''mount''' command. For example, the '''mount -a''' command mounts all filesystems which do not have the '''noauto''' option set.
+
+ 
+==== Example /etc/fstab ====
+ 
+This is for a system with two partitions on one HDD, the first partition being an ext2 filesystem containing / and the second being a swap partition:
+
+ 
+<pre># &lt;file system&gt;        &lt;dir&gt;        &lt;type&gt;        &lt;options&gt;        &lt;dump&gt;    &lt;pass&gt;
+/dev/hd0s1              /            ext2          rw                1         1
+/dev/hd0s2              none         swap          sw                0         0
+
+</pre>
+ 
+* '''&lt;file system&gt;''' denotes the device node or file which is to be mounted. For most cases, this field will contain a device node in /dev.
+* '''&lt;dir&gt;''' denotes where the device will be mounted. Note that, for the swap partition, this is not an actual location but a keyword.
+* '''&lt;type&gt;''' denotes the type of the filesystem. The Hurd supports only ext2 at the moment.
+* '''&lt;options&gt;''' denotes any special options to be used when mounting the partition, see '''man mount''' for a detailed explanation of these.
+* '''&lt;dump&gt;''' is used by the '''dump''' command, a backup utility.
+* '''&lt;pass&gt;''' is used by '''fsck''' to determine the order in which filesystem checks are to be done at boot. The root partition should have a &lt;pass&gt; of 1, and all other partitions 0 or 2, with 0 meaning that the partition does not need to be checked.
+ 
+However, you should know that an /etc/fstab file is nearly completely useless on Hurd. In fact, I only have my swap partition in mine, so I can use '''swapon -a'''. The reason for this is [[translators]]. You can, and I have, 'mount' all of your partitions with '''settrans''', in such a way that these 'mounts' will persist between reboots. Translators are very powerful tools.
+
+ 
+==== Device Naming ====
+ 
+The Hurd uses a different naming scheme for block devices than Linux, devices are named in the form:
+
+ 
+* '''hdX''': PATA drive.
+* '''hdXsY''': partition on a PATA drive.
+* '''sdX''': SCSI drive.
+* '''sdXsY''': partition on a SCSI drive.
+ 
+The numbering for '''X''' starts from 0, and the numbering for '''Y''' starts from 1. Some examples of Linux devices and their corresponding Hurd devices follow:
+
+ 
+* '''hda2''' becomes '''hd0s2'''
+* '''hdb''' becomes '''hd1'''
+* '''hdd4''' becomes '''hd3s4'''
+ 
+== Installing GRUB ==
+ 
+Installing GRUB is as simple as for any other distro; boot with a grub floppy and set up the MBR. So, firstly, get a GRUB floppy, [[such as this one]], then:
+
+ 
+<pre># Unmount
+umount /mnt
+losetup -d /dev/loop0 # Only needed if you used a qemu image.
+
+# Note: If networking doesn't work make sure model=pcnet is set
+qemu -boot a -fda grub.img -hda hurd.img -net nic,vlan=1,model=pcnet -net user,vlan=1 
+# if using a real partition, use the device node rather than 'hurd.img'
+
+</pre>
+ 
+If you installed using pacman, the commands you need are simple:
+
+ 
+<pre>root (hd0,0)
+setup (hd0)
+
+</pre>
+ 
+At this point, GRUB has been set up and when you reboot, you should be presented with the menu.
+
+ 
+== Swap ==
+ 
+You will probably want some swap space, and the easiest way to do this if you used a qemu image is to create another HDD image and use the entire thing as swap rather than create a swap partition on it.
+
+ 
+<pre>qemu-img create -f raw swap.img 1GB
+mkswap swap.img
+
+</pre>
+ 
+When you next boot, tell qemu that hdb is your swap image, and enable the swap in Hurd.
+
+ 
+<pre>qemu -hda hurd.img -hdb swap.img -net nic,vlan=1,model=pcnet -net user,vlan=1
+
+# After booting and creating the device node:
+swapon /dev/hd1
+
+</pre>
+ 
+If you used a real partition or disk, you will probably want to have an equally real swap partition. If so, simply make a swap partition and pass that to qemu as hdb, rather than an image file.
+
+ 
+== First Boot ==
+ 
+All there is left to do now is to setup the devices, and start the network. After booting:
+
+ 
+<pre># Create the required device nodes
+cd /dev
+MAKEDEV hd0 hd0s1 # Et cetera
+
+# For qemu networking:
+touch /servers/socket/2
+settrans -afgp /servers/socket/2 /hurd/pfinet -i eth0 -a 10.0.2.15 -g 10.0.2.2 -m 255.255.255.0
+
+</pre>
+ 
+=== Adding a User ===
+ 
+It is best not to work as root whilst doing your everyday things, as a slight mistake can destroy your system. Thus, you should create a new user and begin using it. This can be done quite simple:
+
+ 
+<pre>adduser
+
+</pre>
+ 
+If, however, you prefer to automate this process (or simply find adduser slow) you can use '''useradd''':
+
+ 
+<pre>useradd -m -G [groups] -s [shell] [username]
+passwd [username]
+
+</pre>
+ 
+* '''-m''': Creates the user home directory as '''/home/username'''
+* '''-G''': A list of supplementary groups which a user is a member of, each group must be separated by a command and no spaces.
+* '''-s''': The path of the users login shell.
+ 
+Useful groups include:
+
+ 
+* '''users''': The group to which all users belong
+* '''wheel''': Commonly a group given unfettered access to the '''sudo''' command.
+ 
+Thus, for a typical system, one may issue this command:
+
+ 
+<pre>useradd -m -G users,wheel -s /bin/bash archie
+
+</pre>
+ 
+=== Setting up Sudo ===
+ 
+'''sudo''' is a common privilege-escalation utility for UNIX systems which allows a user to run a command as another user, most commonly root. Sudo can be found in the core repository, and so can be installed quite simply with pacman:
+
+ 
+<pre>pacman -S sudo
+
+</pre>
+ 
+To make a user a sudoer (ie: give them sudo access), you must run the '''visudo''' command as root. If you are unfamiliar with vim, you can specify a different editor by setting the EDITOR environmental variable.
+
+ 
+<pre># For example, to use nano:
+EDITOR=nano visudo
+
+</pre>
+ 
+To give a user the ability to run any command with sudo, add a line such as this:
+
+ 
+<pre>[username] ALL=(ALL) ALL
+
+</pre>
+ 
+To give a group the ability, add a line such as this:
+
+ 
+<pre>%[groupname] ALL=(ALL) ALL
+
+</pre>
+ 
+You ''must'' edit /etc/sudoers with visudo, otherwise annoyances can occur. Like rendering root unusable.
+
+ 
+=== /dev/random and /dev/urandom ===
+ 
+As you will see when you try to run anything requiring a source of random data, you have no /dev/random and /dev/urandom devices. We don't set up these devices by default for you because some users might want to use a different random translator for /dev/{u,}random, which would conflict with an automatic set-up despite the translator programs themselves not conflicting at all.
+
+
+Assuming you want to use the random-64 package, which is in the base group, for your source of randomness, the following three commands can enable the translators:
+
+ 
+<pre>settrans -c /dev/random /hurd/random --secure
+settrans -c /dev/urandom /hurd/random --fast
+chmod 0644 /dev/random /dev/urandom
+
+</pre>
+ 
+=== A note on using HDDs ===
+ 
+If you have used a full HDD for your Hurd installation it is perfectly fine to boot it using qemu like so:
+
+ 
+<pre>qemu -hda /dev/sdX -net nic,vlan=1,model=pcnet -net user,vlan=1
+
+</pre>
+ 
+If your user has write permission to the device nodes, you can use an entire HDD like that. Of course, within the Hurd your partitions will be named differently. Refer to the section on partition naming for more details.
+
+ 
+== OpenSSH ==
+ 
+openssh is currently is the ''testing'' repository. Follow the instructions [[on the official Arch wiki]] (don't forget to add sshd: ALL to /etc/hosts.allow).
+
+
+To be able to log in as a normal user, you will need to add the following directive to /etc/ssh/sshd_config
+
+ 
+<pre>UsePrivilegeSeparation no
+
+</pre>
+ 
+And to get a console when logging in you will have to create some nodes in /dev for the ptys. Running
+
+ 
+<pre>cd /dev &amp;&amp; MAKEDEV ptyp
+
+</pre>
+ 
+will create nodes named ptyp0 through ptypv.
+
+ 
+=== Logging into a Qemu VM ===
+ 
+The qemu virtual machine, as started in a previous section, runs in an isolated network that cannot be accessed directly from the host machine. However, ssh can be used to create a tunnel to forward connections back to the VM.
+
+
+First you need to create an alias of the loopback device and give it a different address:
+
+ 
+<pre>host# ifconfig lo:0 172.20.0.1
+
+</pre>
+ 
+And start a ssh server at the host:
+
+ 
+<pre>host# /etc/rc.d/sshd start
+
+</pre>
+ 
+Then connect to the host's server to establish the forwarding:
+
+ 
+<pre>hurd# ssh -R 2222:127.0.0.1:22 user@172.20.0.1
+
+</pre>
+ 
+Finally the ssh server at the qemu virtual machine may be contacted through the local port 2222 at the host:
+
+ 
+<pre>host# ssh -p 2222 user@127.0.0.1
+
+</pre>
+ 
+=== Restarting the server ===
+ 
+Please note that there is currently a problem when trying to restart the sshd server because the server is not correctly killed. To do it, follow these steps :
+
+
+Find the PID of the sshd server.
+
+ 
+<pre>cat /var/run/sshd.pid
+
+</pre>
+ 
+Kill the process
+
+ 
+<pre>kill -9 &lt;PID&gt;
+
+</pre>
+ 
+Remove the sshd.pid file and start the server.
+
+ 
+<pre>rm /var/run/sshd.pid
+/etc/rc.d/sshd start
+
+</pre>
+ 
+== Troubleshooting ==
+ 
+=== Boot halts and complains about a missing /dev/console ===
+ 
+Whilst undoubtly a scary thing to encounter on your first excursion into Hurd, this can be fixed with a few simple commands. If your system is currently read-only, fix that:
+
+ 
+<pre>fsysopts / --writable
+
+</pre>
+ 
+Then create the console device:
+
+ 
+<pre>cd /dev
+settrans -cg console
+chown root console
+chmod 600 console
+settrans console "/hurd/term /dev/console device console"
+
+</pre>
+ 
+=== "cannot make pipe for command substitution" ===
+ 
+Something is wrong with your pflocal server, again, ensure the system is writable:
+
+ 
+<pre>fsysopts / --writable
+
+</pre>
+ 
+And restart the translator:
+
+ 
+<pre>settrans -acp /servers/socket/1 /hurd/pflocal
+
+</pre>
+ 
+=== "login: Invalid password" ===
+ 
+If '''login''' complains that you have given an invalid password before it even asks you to enter one, well, I have no idea why it does that. The only solution is to unset the password for the account you're trying to log in to (watch this space for a better solution...). So, firstly, reboot to single-user mode (append "-s" flag to GNU Mach command line in GRUB), then:
+
+ 
+<pre>fsysopts / --writable # If read-only
+passwd -d $user
+reboot
+
+</pre>
+ 
+Obviously, this isn't a very good solution. When I figure out how to properly fix it, this will be updated.
+
+ 
+=== Everything freezes after a while ===
+ 
+Believe me, we're as confused about this as you. Everything seems to freeze if nothing gets sent to STDOUT for a while so, start up something that generates continuous output in one of your TTYs. We like
+
+ 
+<pre>vmstat 5
+
+</pre>
+   
+Retrieved from "[[http://wiki.archhurd.org/wiki/Alternate_Installation_Guide]]" [[Category]]: [[Guides]]
